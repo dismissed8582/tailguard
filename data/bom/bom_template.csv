@@ -1,0 +1,6 @@
+# tailguard BOM template
+# kappa = extra cost per disruption event
+# type  = offshore | domestic
+component,supplier,base_cost,kappa,lead_time,type
+Component_A,Supplier_Offshore_1,100,60,30,offshore
+Component_A,Supplier_Domestic_1,140,5,2,domestic
