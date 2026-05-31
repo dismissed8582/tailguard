@@ -220,8 +220,3 @@ reshoring-cvar/
 - DRO radius ε = c/√Ω is theory-driven; cross-validation for ε would improve robustness
 - Optimality gap > 1% at Ω=1,000 — increase to Ω=5,000–10,000 for production use
 
----
-
-## License
-
-MIT
