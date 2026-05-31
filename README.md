@@ -3,7 +3,7 @@
 
 > *Quantifies when domestic sourcing pays off — mathematically, not as a gut feeling.*
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dismissed8582/reshoring-cvar/blob/main/notebooks/tailguard.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dismissed8582/tailguard/blob/main/notebooks/tailguard.ipynb)
 
 ---
 
