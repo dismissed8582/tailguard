@@ -1,7 +1,7 @@
 # reshoring-cvar
 ### CVaR-Based Stochastic Reshoring Optimizer with Cox-Process Scenario Generation
 
-> *Quantifies when domestic sourcing pays off — mathematically, not as a gut feeling.*
+> *Quantifies when domestic sourcing pays off mathematically, not as a gut feeling.*
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dismissed8582/tailguard/blob/main/notebooks/tailguard.ipynb)
 
