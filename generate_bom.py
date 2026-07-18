@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-generate_bom.py  --  Synthetic BOM generator for tailguard CVaR Reshoring Optimizer
-=====================================================================================
+generate_bom.py  --  Synthetic sourcing-option generator for Tailguard
+====================================================================
 
-Generates realistic example BOMs for different industries.
-Output: CSV files ready to upload into the tailguard notebook.
+Generates illustrative synthetic sourcing-option tables for different industries.
+Output: CSV files ready for local selection with ``TAILGUARD_BOM_CSV`` without
+embedding their paths in notebook source.
+Existing files are not overwritten unless --force is supplied.
 
 Usage:
-    python generate_bom.py                    # all industries -> data/bom/
+    python generate_bom.py                    # all industries -> generated/bom/
     python generate_bom.py --industry auto    # only automotive
-    python generate_bom.py --industry chem    # only chemicals (BASF-style)
+    python generate_bom.py --industry chem    # only chemicals
     python generate_bom.py --industry semi    # only semiconductors
     python generate_bom.py --industry pharma  # only pharma
     python generate_bom.py --list             # show available industries
@@ -17,263 +19,272 @@ Usage:
 
 Columns generated:
     component   -- part group name
-    supplier    -- supplier / route label
-    base_cost   -- unit cost in normal times ($)
-    kappa       -- cost shock per disruption event ($)
-                   Rule of thumb: kappa ~ 0.3-1.5x base_cost for offshore
-                                  kappa ~ 0.03-0.1x base_cost for domestic
+    supplier    -- synthetic option label
+    base_cost   -- unit cost in normal times (one user-defined currency)
+    kappa       -- illustrative cost shock per disruption event (same basis)
     lead_time   -- delivery time in days
-    type        -- offshore | domestic
+    type        -- abstract offshore | domestic source-class label
+
+All names, costs, and classifications are synthetic examples. They are not
+supplier facts, sourcing recommendations, or evidence of affiliation.
 """
 
 import argparse
+import hashlib
 import os
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "generated" / "bom"
+
 # ── Industry templates ────────────────────────────────────────────────────────
-# Each entry: (supplier_label, base_cost, kappa, lead_time, type)
+# Each option tuple contains only synthetic numerical parameters
+# (base_cost, kappa, lead_time).  There are deliberately no embedded supplier,
+# country, or route identifiers for users to mistake for source data.
 
 INDUSTRIES = {
-
     "auto": {
-        "name": "Automotive (Tesla / BMW style)",
-        "desc": "EV powertrain + body components. High kappa on battery cells and semiconductors.",
+        "name": "Automotive components (illustrative)",
+        "desc": "Illustrative EV powertrain and body components with varied shock exposure.",
         "components": {
             "Battery_Cell": {
                 "offshore": [
-                    ("CATL_CN_sea",      85,  62, 28),
-                    ("Panasonic_JP_sea", 95,  22, 21),
-                    ("LG_KR_air",       110,  18,  8),
+                    (85, 62, 28),
+                    (95, 22, 21),
+                    (110, 18, 8),
                 ],
                 "domestic": [
-                    ("Panasonic_NV",    128,   4),
-                    ("Ultium_OH",       135,   5),
+                    (128, 4, 1),
+                    (135, 5, 1),
                 ],
             },
             "Semiconductor": {
                 "offshore": [
-                    ("TSMC_TW_sea",     70,  85, 35),
-                    ("Samsung_KR_air", 100,  28,  7),
-                    ("Renesas_JP_air",  95,  30,  9),
+                    (70, 85, 35),
+                    (100, 28, 7),
+                    (95, 30, 9),
                 ],
                 "domestic": [
-                    ("TSMC_AZ",        140,   5),
-                    ("Intel_OH",       155,   6),
+                    (140, 5, 1),
+                    (155, 6, 1),
                 ],
             },
             "Structural_Steel": {
                 "offshore": [
-                    ("Baosteel_CN_sea",  40,  35, 32),
-                    ("POSCO_KR_sea",     45,  20, 25),
+                    (40, 35, 32),
+                    (45, 20, 25),
                 ],
                 "domestic": [
-                    ("Nucor_US",         65,   3),
+                    (65, 3, 1),
                 ],
             },
             "Drive_Unit": {
                 "offshore": [
-                    ("Nidec_CN_sea",   120,  55, 30),
-                    ("Bosch_DE_air",   145,  15,  5),
+                    (120, 55, 30),
+                    (145, 15, 5),
                 ],
                 "domestic": [
-                    ("Tesla_Fremont",  175,   4),
+                    (175, 4, 1),
                 ],
             },
             "Power_Electronics": {
                 "offshore": [
-                    ("Infineon_MY_sea",  42,  60, 33),
-                    ("Rohm_JP_air",      55,  22,  8),
+                    (42, 60, 33),
+                    (55, 22, 8),
                 ],
                 "domestic": [
-                    ("Wolfspeed_NC",     80,   3),
+                    (80, 3, 1),
                 ],
             },
-        }
+        },
     },
-
     "chem": {
-        "name": "Chemicals / Specialty Chemicals (BASF style)",
+        "name": "Chemicals / specialty chemicals (illustrative)",
         "desc": "Precursors and specialty inputs with long offshore lead times.",
         "components": {
             "Ethylene_Oxide": {
                 "offshore": [
-                    ("SINOPEC_CN_sea",  210,  140, 40),
-                    ("Saudi_Kayan_sea", 185,   90, 35),
+                    (210, 140, 40),
+                    (185, 90, 35),
                 ],
                 "domestic": [
-                    ("BASF_Ludwigshafen", 280,  12),
-                    ("LyondellBasell_DE", 295,  10),
+                    (280, 12, 1),
+                    (295, 10, 1),
                 ],
             },
             "Rare_Earth_Oxides": {
                 "offshore": [
-                    ("China_Minmetals_sea", 320, 280, 45),
-                    ("MP_Materials_sea",    290, 200, 38),
+                    (320, 280, 45),
+                    (290, 200, 38),
                 ],
                 "domestic": [
-                    ("MP_Materials_CA",  480,  25),
+                    (480, 25, 1),
                 ],
             },
             "Specialty_Solvents": {
                 "offshore": [
-                    ("Wanhua_CN_sea",  95,  55, 30),
-                    ("Eastman_SG_sea", 110,  40, 28),
+                    (95, 55, 30),
+                    (110, 40, 28),
                 ],
                 "domestic": [
-                    ("Eastman_TN",    145,   8),
-                    ("Evonik_DE",     150,   6),
+                    (145, 8, 1),
+                    (150, 6, 1),
                 ],
             },
             "Polymer_Pellets": {
                 "offshore": [
-                    ("Sabic_SA_sea",   78,  48, 38),
-                    ("Formosa_TW_sea", 72,  52, 36),
+                    (78, 48, 38),
+                    (72, 52, 36),
                 ],
                 "domestic": [
-                    ("Dow_TX",        105,   5),
+                    (105, 5, 1),
                 ],
             },
             "Catalyst_Package": {
                 "offshore": [
-                    ("Umicore_BE_air",  850,  120,  7),
-                    ("Heraeus_CN_sea",  780,  200, 30),
+                    (850, 120, 7),
+                    (780, 200, 30),
                 ],
                 "domestic": [
-                    ("BASF_Catalysts", 1100,  30),
-                    ("Clariant_US",    1050,  25),
+                    (1100, 30, 1),
+                    (1050, 25, 1),
                 ],
             },
-        }
+        },
     },
-
     "semi": {
-        "name": "Semiconductor Equipment / Fabless Design",
+        "name": "Semiconductor supply (illustrative)",
         "desc": "Advanced node wafers, substrates, and photomask inputs.",
         "components": {
             "300mm_Wafer": {
                 "offshore": [
-                    ("Siltronic_SG_sea",  185,  95, 30),
-                    ("Sumco_JP_sea",      175,  80, 28),
-                    ("SK_Siltron_KR_sea", 170,  85, 32),
+                    (185, 95, 30),
+                    (175, 80, 28),
+                    (170, 85, 32),
                 ],
                 "domestic": [
-                    ("GlobalWafers_TX", 250,  15),
+                    (250, 15, 1),
                 ],
             },
             "Photoresist_EUV": {
                 "offshore": [
-                    ("JSR_JP_air",       620, 350,  7),
-                    ("TOK_JP_air",       590, 320,  8),
+                    (620, 350, 7),
+                    (590, 320, 8),
                 ],
                 "domestic": [
-                    ("DuPont_US",        850,  40),
+                    (850, 40, 1),
                 ],
             },
             "CMP_Slurry": {
                 "offshore": [
-                    ("Fujimi_JP_sea",   310, 120, 25),
-                    ("CMC_TW_sea",      290, 110, 28),
+                    (310, 120, 25),
+                    (290, 110, 28),
                 ],
                 "domestic": [
-                    ("Entegris_US",     420,  18),
+                    (420, 18, 1),
                 ],
             },
             "Deposition_Gas": {
                 "offshore": [
-                    ("Air_Liquide_JP_sea", 125,  80, 30),
-                    ("Showa_Denko_sea",    115,  75, 28),
+                    (125, 80, 30),
+                    (115, 75, 28),
                 ],
                 "domestic": [
-                    ("Linde_US",         180,  10),
-                    ("Air_Products_US",  175,   8),
+                    (180, 10, 1),
+                    (175, 8, 1),
                 ],
             },
             "Substrate_PKG": {
                 "offshore": [
-                    ("Ibiden_JP_sea",   420, 200, 35),
-                    ("Unimicron_TW_sea",390, 220, 38),
+                    (420, 200, 35),
+                    (390, 220, 38),
                 ],
                 "domestic": [
-                    ("TTM_Tech_US",     580,  20),
+                    (580, 20, 1),
                 ],
             },
-        }
+        },
     },
-
     "pharma": {
-        "name": "Pharmaceuticals / API supply",
-        "desc": "Active Pharmaceutical Ingredients with heavy China/India offshore dependency.",
+        "name": "Pharmaceutical API supply (illustrative)",
+        "desc": "Active pharmaceutical ingredients with deliberately high long-distance shock exposure.",
         "components": {
             "API_Core": {
                 "offshore": [
-                    ("Zhejiang_Huahai_CN_sea",  45,  38, 55),
-                    ("Sun_Pharma_IN_sea",        50,  32, 48),
-                    ("Aurobindo_IN_sea",         48,  35, 50),
+                    (45, 38, 55),
+                    (50, 32, 48),
+                    (48, 35, 50),
                 ],
                 "domestic": [
-                    ("Pfizer_Ringaskiddy",  120,   8),
-                    ("Lonza_US",            135,   6),
+                    (120, 8, 1),
+                    (135, 6, 1),
                 ],
             },
             "Excipients": {
                 "offshore": [
-                    ("Roquette_CN_sea",   22,  15, 42),
-                    ("Ashland_IN_sea",    24,  12, 40),
+                    (22, 15, 42),
+                    (24, 12, 40),
                 ],
                 "domestic": [
-                    ("Roquette_FR",  38,   3),
-                    ("IMCD_NL",      40,   4),
+                    (38, 3, 1),
+                    (40, 4, 1),
                 ],
             },
             "Solvent_GMP": {
                 "offshore": [
-                    ("Merck_CN_sea",  88,  45, 38),
-                    ("Avantor_IN_sea", 82,  50, 40),
+                    (88, 45, 38),
+                    (82, 50, 40),
                 ],
                 "domestic": [
-                    ("Merck_DE",      130,   5),
+                    (130, 5, 1),
                 ],
             },
             "Packaging_Primary": {
                 "offshore": [
-                    ("Gerresheimer_CN_sea", 65,  40, 35),
-                    ("SGD_IN_sea",          60,  38, 38),
+                    (65, 40, 35),
+                    (60, 38, 38),
                 ],
                 "domestic": [
-                    ("Gerresheimer_DE",  95,   4),
-                    ("Schott_DE",        98,   5),
+                    (95, 4, 1),
+                    (98, 5, 1),
                 ],
             },
             "Cold_Chain_Logistics": {
                 "offshore": [
-                    ("Kerry_Logistics_HK_air", 180,  90, 3),
-                    ("DHL_Supply_CN_air",      195, 100, 2),
+                    (180, 90, 3),
+                    (195, 100, 2),
                 ],
                 "domestic": [
-                    ("Cryoport_US",    240,  12),
-                    ("World_Courier",  255,  10),
+                    (240, 12, 1),
+                    (255, 10, 1),
                 ],
             },
-        }
+        },
     },
 }
 
 
 # ── Random BOM generator ──────────────────────────────────────────────────────
 
+
 def generate_random_bom(n_components=6, n_options_per=3, seed=42):
     """
     Generate a fully randomised synthetic BOM.
     Useful for stress-testing the optimizer with arbitrary problem sizes.
     """
+    if isinstance(n_components, bool) or not isinstance(n_components, int) or n_components < 1:
+        raise ValueError("n_components must be at least 1")
+    if isinstance(n_options_per, bool) or not isinstance(n_options_per, int) or n_options_per < 2:
+        raise ValueError("n_options_per must be at least 2")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError("seed must be a non-negative integer")
     rng = np.random.default_rng(seed)
-    component_names = [
-        "Component_{:02d}".format(i+1) for i in range(n_components)
-    ]
-    regions_off = ["CN", "TW", "KR", "JP", "SG", "MY", "MX", "IN"]
-    regions_dom = ["US", "DE", "FR", "UK", "CA"]
-    routes      = ["sea", "air", "truck"]
+    component_names = ["Component_{:02d}".format(i + 1) for i in range(n_components)]
+    routes = ["sea", "air", "truck"]
 
     rows = []
     for comp in component_names:
@@ -281,58 +292,165 @@ def generate_random_bom(n_components=6, n_options_per=3, seed=42):
         base = int(rng.integers(30, 300))
         # offshore options
         for j in range(n_options_per - 1):
-            region  = rng.choice(regions_off)
-            route   = rng.choice(routes)
-            b_off   = int(base * rng.uniform(0.6, 1.0))
-            kappa   = int(b_off * rng.uniform(0.3, 1.2))
-            lt      = int(rng.integers(5, 45)) if route != "truck" else int(rng.integers(2, 10))
-            supplier = "{}_{}_{}_{}".format(comp[:4], region, route, j+1)
+            route = rng.choice(routes)
+            b_off = int(base * rng.uniform(0.6, 1.0))
+            kappa = int(b_off * rng.uniform(0.3, 1.2))
+            lt = int(rng.integers(5, 45)) if route != "truck" else int(rng.integers(2, 10))
+            supplier = "{}_offshore_{}_{}".format(comp, route, j + 1)
             rows.append([comp, supplier, b_off, kappa, lt, "offshore"])
         # domestic option (1 per component)
-        region_d = rng.choice(regions_dom)
-        b_dom    = int(base * rng.uniform(1.1, 1.8))
-        kappa_d  = int(b_dom * rng.uniform(0.02, 0.08))
-        lt_d     = int(rng.integers(1, 7))
-        supplier_d = "{}_{}_dom".format(comp[:4], region_d)
+        b_dom = int(base * rng.uniform(1.1, 1.8))
+        kappa_d = int(b_dom * rng.uniform(0.02, 0.08))
+        lt_d = int(rng.integers(1, 7))
+        supplier_d = "{}_domestic_1".format(comp)
         rows.append([comp, supplier_d, b_dom, kappa_d, lt_d, "domestic"])
 
-    df = pd.DataFrame(rows, columns=["component","supplier","base_cost","kappa","lead_time","type"])
+    df = pd.DataFrame(rows, columns=["component", "supplier", "base_cost", "kappa", "lead_time", "type"])
     return df
 
 
 # ── Industry BOM to DataFrame ─────────────────────────────────────────────────
 
+
+def _synthetic_supplier_label(component, source_type, ordinal):
+    slug = "".join(character.lower() if character.isalnum() else "_" for character in component)
+    slug = slug.strip("_")
+    return "{}_{}_{}".format(slug, source_type, ordinal)
+
+
 def industry_to_df(industry_key):
-    ind  = INDUSTRIES[industry_key]
+    ind = INDUSTRIES[industry_key]
     rows = []
     for comp, d in ind["components"].items():
-        for sup, base, kappa, lt in d["offshore"]:
-            rows.append([comp, sup, base, kappa, lt, "offshore"])
-        for item in d["domestic"]:
-            sup, base, kappa = item
-            rows.append([comp, sup, base, kappa, 1, "domestic"])
-    return pd.DataFrame(rows, columns=["component","supplier","base_cost","kappa","lead_time","type"])
+        for ordinal, (base, kappa, lt) in enumerate(d["offshore"], start=1):
+            rows.append([comp, _synthetic_supplier_label(comp, "offshore", ordinal), base, kappa, lt, "offshore"])
+        for ordinal, (base, kappa, lt) in enumerate(d["domestic"], start=1):
+            rows.append([comp, _synthetic_supplier_label(comp, "domestic", ordinal), base, kappa, lt, "domestic"])
+    return pd.DataFrame(rows, columns=["component", "supplier", "base_cost", "kappa", "lead_time", "type"])
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-def main():
+
+def _preflight_output_paths(paths, force=False):
+    collisions = [Path(path) for path in paths if Path(path).exists()]
+    if collisions and not force:
+        listed = ", ".join(str(path) for path in collisions)
+        raise FileExistsError(f"output already exists: {listed}; choose another --out or pass --force")
+
+
+def _seed_filename_token(seed):
+    """Keep ordinary seeds readable while bounding generated filename length."""
+
+    text = str(seed)
+    if len(text) <= 64:
+        return text
+    digest = hashlib.sha256(text.encode("ascii")).hexdigest()
+    return "sha256_{}".format(digest)
+
+
+def _output_error(parser, exc):
+    """Report filesystem failures without echoing a configured output path."""
+
+    if isinstance(exc, FileExistsError):
+        parser.error("output already exists; choose another --out or pass --force")
+    parser.error("could not access the output location; check --out and its permissions")
+
+
+def _publish_temporary(temporary, path, force=False):
+    """Publish a complete file atomically, without clobbering unless requested."""
+
+    if force:
+        temporary.replace(path)
+    else:
+        # The temporary file is created in path.parent, so this is one
+        # filesystem. Creating the destination hard link is atomic and fails
+        # if another process creates any entry at path after preflight.
+        os.link(temporary, path)
+
+
+def _write_csv(df, path, force=False):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not force:
+        raise FileExistsError("{} already exists; choose another --out or pass --force".format(path))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write("# Synthetic Tailguard sourcing-option fixture; not supplier data or sourcing advice.\n")
+            df.to_csv(stream, index=False)
+        _publish_temporary(temporary, path, force=force)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def _write_template(path, force=False):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not force:
+        raise FileExistsError("{} already exists; choose another --out or pass --force".format(path))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(
+                "# Synthetic Tailguard sourcing-option template; not supplier data or sourcing advice.\n"
+                "# tailguard flat sourcing-option template\n"
+                "# Costs and kappa must be normalized to one finished unit.\n"
+                "# type is an input label: offshore or domestic.\n"
+                "component,supplier,base_cost,kappa,lead_time,type\n"
+                "Component_A,Supplier_Offshore_1,100,60,30,offshore\n"
+                "Component_A,Supplier_Domestic_1,140,5,2,domestic\n"
+            )
+        _publish_temporary(temporary, path, force=force)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Generate synthetic BOM CSVs for tailguard CVaR notebook",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog=__doc__,
     )
-    parser.add_argument("--industry", "-i", choices=list(INDUSTRIES.keys()) + ["all"],
-                        default="all", help="Which industry to generate")
-    parser.add_argument("--list", "-l", action="store_true",
-                        help="List available industries and exit")
-    parser.add_argument("--custom", "-c", nargs=2, type=int, metavar=("N_COMP","N_OPT"),
-                        help="Generate random BOM with N_COMP components and N_OPT options each")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for --custom (default: 42)")
-    parser.add_argument("--out", "-o", default="data/bom",
-                        help="Output directory (default: data/bom/)")
-    args = parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--industry", "-i", choices=list(INDUSTRIES.keys()) + ["all"], help="Which industry to generate (default: all)"
+    )
+    mode.add_argument("--list", "-l", action="store_true", help="List available industries and exit")
+    mode.add_argument(
+        "--custom",
+        "-c",
+        nargs=2,
+        type=int,
+        metavar=("N_COMP", "N_OPT"),
+        help="Generate random BOM with N_COMP components and N_OPT options each",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for --custom (default: 42)")
+    parser.add_argument(
+        "--out", "-o", default=str(DEFAULT_OUTPUT_DIR), help="Output directory (default: repository/generated/bom)"
+    )
+    parser.add_argument("--force", action="store_true", help="Allow replacing an existing generated file")
+    args = parser.parse_args(argv)
 
     if args.list:
         print("\nAvailable industries:")
@@ -341,59 +459,78 @@ def main():
             print("           {}".format(v["desc"]))
         return
 
-    os.makedirs(args.out, exist_ok=True)
-
     if args.custom:
         n_comp, n_opt = args.custom
-        print("Generating random BOM: {} components x {} options/each (seed={})".format(
-            n_comp, n_opt, args.seed))
+        if n_comp < 1:
+            parser.error("--custom N_COMP must be at least 1")
+        if n_opt < 2:
+            parser.error("--custom N_OPT must be at least 2 so every component has a choice")
+        if args.seed < 0:
+            parser.error("--seed must be non-negative")
+        print("Generating random BOM: {} components x {} options/each (seed={})".format(n_comp, n_opt, args.seed))
         df = generate_random_bom(n_components=n_comp, n_options_per=n_opt, seed=args.seed)
-        path = os.path.join(args.out, "bom_random_{}_comp_{}_opt.csv".format(n_comp, n_opt))
-        df.to_csv(path, index=False)
+        seed_token = _seed_filename_token(args.seed)
+        path = Path(args.out) / "bom_random_{}_comp_{}_opt_seed_{}.csv".format(n_comp, n_opt, seed_token)
+        try:
+            _preflight_output_paths([path], force=args.force)
+            _write_csv(df, path, force=args.force)
+        except (OSError, ValueError) as exc:
+            _output_error(parser, exc)
         _print_summary(df, path)
         return
 
-    targets = list(INDUSTRIES.keys()) if args.industry == "all" else [args.industry]
-    for key in targets:
-        ind  = INDUSTRIES[key]
-        df   = industry_to_df(key)
-        path = os.path.join(args.out, "bom_{}.csv".format(key))
-        df.to_csv(path, index=False)
+    industry = args.industry or "all"
+    targets = list(INDUSTRIES.keys()) if industry == "all" else [industry]
+    plans = [(key, industry_to_df(key), Path(args.out) / "bom_{}.csv".format(key)) for key in targets]
+    template_path = Path(args.out) / "bom_template.csv"
+    try:
+        _preflight_output_paths([path for _, _, path in plans] + [template_path], force=args.force)
+    except (OSError, ValueError) as exc:
+        _output_error(parser, exc)
+
+    for key, df, path in plans:
+        ind = INDUSTRIES[key]
+        try:
+            _write_csv(df, path, force=args.force)
+        except (OSError, ValueError) as exc:
+            _output_error(parser, exc)
         _print_summary(df, path, title=ind["name"])
 
-    # Also write a template CSV with comments
-    template_path = os.path.join(args.out, "bom_template.csv")
-    with open(template_path, "w") as f:
-        f.write("# tailguard BOM template\n")
-        f.write("# kappa = extra cost per disruption event\n")
-        f.write("# type  = offshore | domestic\n")
-        f.write("component,supplier,base_cost,kappa,lead_time,type\n")
-        f.write("Component_A,Supplier_Offshore_1,100,60,30,offshore\n")
-        f.write("Component_A,Supplier_Domestic_1,140,5,2,domestic\n")
+    try:
+        _write_template(template_path, force=args.force)
+    except (OSError, ValueError) as exc:
+        _output_error(parser, exc)
     print("\nTemplate written to: {}".format(template_path))
-    print("\nUpload any of these CSVs into the BOM widget in the notebook.")
+    print(
+        "\nSet TAILGUARD_BOM_CSV in the Jupyter environment to select one of these CSVs "
+        "without embedding its path in notebook source."
+    )
 
 
 def _print_summary(df, path, title=None):
     if title:
         print("\n[ {} ]".format(title))
-    print("  Written: {}  ({} rows, {} components)".format(
-        path, len(df), df["component"].nunique()))
-    print("  {:<24} {:>8} {:>8} {:>10}  Offshore suppliers".format(
-        "Component", "base_off", "kappa_off", "lead_off"))
+    print("  Written: {}  ({} rows, {} components)".format(path, len(df), df["component"].nunique()))
+    print(
+        "  {:<24} {:>8} {:>8} {:>10}  Offshore-labeled options".format(
+            "Component", "base_off", "kappa_off", "lead_off"
+        )
+    )
     print("  " + "-" * 70)
     for comp, grp in df.groupby("component"):
         off = grp[grp["type"] == "offshore"]
         dom = grp[grp["type"] == "domestic"]
         if len(off):
-            print("  {:<24} {:>8.0f} {:>8.0f} {:>9.0f}d  {} (dom: {})".format(
-                comp,
-                off["base_cost"].mean(),
-                off["kappa"].mean(),
-                off["lead_time"].mean(),
-                ", ".join(off["supplier"].tolist()),
-                ", ".join(dom["supplier"].tolist()),
-            ))
+            print(
+                "  {:<24} {:>8.0f} {:>8.0f} {:>9.0f}d  {} (domestic-labeled: {})".format(
+                    comp,
+                    off["base_cost"].mean(),
+                    off["kappa"].mean(),
+                    off["lead_time"].mean(),
+                    ", ".join(off["supplier"].tolist()),
+                    ", ".join(dom["supplier"].tolist()),
+                )
+            )
 
 
 if __name__ == "__main__":

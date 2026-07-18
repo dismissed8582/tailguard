@@ -1,0 +1,141 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check tailguard tests scripts generate_bom.py
+      - run: python scripts/build_notebook.py --check
+      - run: python -W error -m pytest -q
+
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - run: python -m venv /tmp/tailguard-wheel-test
+      - run: /tmp/tailguard-wheel-test/bin/python -m pip install "${{ github.workspace }}"/dist/*.whl
+      - run: /tmp/tailguard-wheel-test/bin/python -m pip check
+      - run: /tmp/tailguard-wheel-test/bin/python -c "from tailguard import weighted_cvar; assert weighted_cvar([0, 1], 0.5) == 1"
+        working-directory: /tmp
+      - run: python -m venv /tmp/tailguard-sdist-test
+      - run: /tmp/tailguard-sdist-test/bin/python -m pip install "${{ github.workspace }}"/dist/*.tar.gz
+      - run: /tmp/tailguard-sdist-test/bin/python -m pip check
+      - run: /tmp/tailguard-sdist-test/bin/python -c "from tailguard import weighted_cvar; assert weighted_cvar([0, 1], 0.5) == 1"
+        working-directory: /tmp
+
+  python-39-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install "numpy==1.24.0" "pandas==2.2.2" "PuLP==2.7.0"
+      - run: python -m pip install -e . --no-deps
+      - run: python -m pip check
+      - run: python -m compileall -q tailguard scripts/smoke_runtime.py
+      - run: python -W error scripts/smoke_runtime.py
+
+  minimum-dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: >-
+          python -m pip install
+          "numpy==1.24.0" "pandas==2.2.2" "PuLP==2.7.0" "pytest==9.0.3"
+      - run: python -m pip install -e . --no-deps
+      - run: python -m pip check
+      - run: python -W error -m pytest -q --ignore=tests/test_notebook.py
+
+  notebook:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[notebook,dev]"
+      - run: python scripts/build_notebook.py --check
+      - run: MPLBACKEND=Agg python -W error scripts/smoke_notebook.py
+      - run: >-
+          python -m jupyter nbconvert --to notebook --execute notebooks/tailguard.ipynb
+          --output tailguard-executed.ipynb --output-dir /tmp
+          --ExecutePreprocessor.timeout=180 --ExecutePreprocessor.kernel_name=python3
+
+  windows-quickstart:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Exercise documented Windows quickstart
+        shell: pwsh
+        env:
+          MPLBACKEND: Agg
+        run: |
+          py -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e ".[notebook]"
+          .\.venv\Scripts\python.exe scripts/build_notebook.py --check
+          .\.venv\Scripts\python.exe -W error scripts/smoke_notebook.py

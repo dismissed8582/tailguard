@@ -1,0 +1,2 @@
+include LEGACY_ARTIFACT_AUDIT.md
+prune tests
