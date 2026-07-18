@@ -311,12 +311,31 @@ independent domain review.
 
 ## References
 
-- R. T. Rockafellar and S. Uryasev, “Optimization of Conditional Value-at-Risk,”
-  *The Journal of Risk* 2(3), 21–41 (2000),
-  [DOI: 10.21314/JOR.2000.038](https://doi.org/10.21314/JOR.2000.038).
-- P. Mohajerin Esfahani and D. Kuhn, “Data-Driven Distributionally Robust
-  Optimization Using the Wasserstein Metric: Performance Guarantees and
-  Tractable Reformulations,” *Mathematical Programming* 171, 115–166 (2018),
-  [DOI: 10.1007/s10107-017-1172-1](https://doi.org/10.1007/s10107-017-1172-1).
+### Foundational Risk & Optimization Methods
+- **[1]** R. T. Rockafellar and S. Uryasev, “Optimization of Conditional Value-at-Risk,” *Journal of Risk* 2(3), 21–41 (2000). [DOI: 10.21314/JOR.2000.038](https://doi.org/10.21314/JOR.2000.038).
+- **[2]** R. T. Rockafellar and S. Uryasev, “Conditional Value-at-Risk for general loss distributions,” *Journal of Banking & Finance* 26(7), 1443–1471 (2002).
+- **[5]** P. Artzner, F. Delbaen, J.-M. Eber, and D. Heath, “Coherent Measures of Risk,” *Mathematical Finance* 9(3), 203–228 (1999).
+- **[13]** C. Acerbi and D. Tasche, “On the coherence of expected shortfall,” *Journal of Banking & Finance* 26(7), 1487–1503 (2002).
+- **[14]** J. F. Benders, “Partitioning procedures for solving mixed-variables programming problems,” *Numerische Mathematik* 4, 238–252 (1962).
+
+### Stochastic Reshoring & Framework Context
+- **[3]** M. Chandran and V. Shanmuganathan, “A Stochastic Process Optimization Framework for Reshoring Supply Chains: Integrating Digital Twins with Mixed-Integer Programming,” *Preprint*, doi:10.20944/preprints202601.2128.v2 (2026).
+- **[4]** “A CVaR-Based Risk Measure for Stochastic Reshoring Optimization,” *Working note* (2026).
+
+### Generative Modeling & Statistical Processes
+- **[7]** D. Duffie, D. Filipović, and W. Schachermayer, “Affine processes and applications in finance,” *Annals of Applied Probability* 13(3), 984–1053 (2003).
+- **[8]** D. R. Cox, “Some statistical methods connected with series of events,” *Journal of the Royal Statistical Society B* 17(2), 129–164 (1955).
+- **[9]** H. Joe, *Multivariate Models and Dependence Concepts*, Chapman & Hall (1997).
+
+### Sample Average Approximation (SAA) & Bounds
+- **[6]** A. J. Kleywegt, A. Shapiro, and T. Homem-de-Mello, “The sample average approximation method for stochastic discrete optimization,” *SIAM Journal on Optimization* 12(2), 479–502 (2002).
+- **[10]** W.-K. Mak, D. P. Morton, and R. K. Wood, “Monte Carlo bounding techniques for determining solution quality in stochastic programs,” *Operations Research Letters* 24, 47–56 (1999).
+
+### Distributionally Robust Optimization (DRO)
+- **[11]** P. Mohajerin Esfahani and D. Kuhn, “Data-driven distributionally robust optimization using the Wasserstein metric: Performance guarantees and tractable reformulations,” *Mathematical Programming* 171, 115–166 (2018). [DOI: 10.1007/s10107-017-1172-1](https://doi.org/10.1007/s10107-017-1172-1).
+- **[12]** N. Fournier and A. Guillin, “On the rate of convergence in Wasserstein distance of the empirical measure,” *Probability Theory and Related Fields* 162, 707–738 (2015).
+
+### Regulatory Context
+- **[15]** Basel Committee on Banking Supervision, “Minimum capital requirements for market risk,” *Bank for International Settlements*, document d457 (2019).
 
 Licensed under the [MIT License](LICENSE).
